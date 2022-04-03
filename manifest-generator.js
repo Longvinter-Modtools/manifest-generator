@@ -6,8 +6,6 @@
 
 const forceUnixLineEndings = true //force \n instead of \r\n (default: true)
 
-const removeOldDefs = true // remove undetected defs (default: true)
-
 const onlyHighestDefVer = false // only greatest def version added to manifest (default: false)
 
 const addAutoUpdateDisableBool = true // add ("disableAutoUpdate": false) to module.json if missing (default: true)
@@ -21,6 +19,8 @@ const addDescription = "Description goes here." // add ("description": <addDescr
 const addServers = [""] // add ("servers": <addServers>) to module.json if missing (default: [""])
 
 const addSupportUrl = "" // add ("supportURL": <addSupportURL>) to module.json if missing (default: "")
+
+const addCategory = "" // add ("category": <addCategory>) to module.json if missing (default: "")
 
 ////////////////////
 //  LISTS         //
@@ -109,6 +109,9 @@ if (addServers && addServers[0] && modulejson.servers === undefined) {
 if (addSupportUrl && modulejson.supportUrl === undefined) {
     modulejson.supportUrl = addSupportUrl
 }
+if (addCategory && modulejson.category === undefined) {
+    modulejson.category = addCategory
+}
 fs.writeFileSync(path.join(directory, 'module.json'), jsonify(modulejson), 'utf8')
 
 // read existing manifest.json
@@ -118,7 +121,6 @@ try {
     manifest = require(path.join(directory, 'manifest.json'))
     if (manifest && typeof manifest === 'object') {
         if (!manifest.files) manifest.files = {}
-        if (removeOldDefs) delete manifest.defs
     }
     else {
         manifest = {
@@ -176,76 +178,11 @@ function getHash(file, type = 'sha256') {
     file = file.replace(/\\/g, '/')
     // force unix line endings
     if (forceUnixLineEndings) forceUnix(file)
-    // get defs
-    getDefs(file)
     if (manifest.files[file] && typeof manifest.files[file] === 'object') {
         manifest.files[file].hash = crypto.createHash(type).update(fs.readFileSync(path.join(directory, file))).digest('hex')
     }
     else {
         manifest.files[file] = crypto.createHash(type).update(fs.readFileSync(path.join(directory, file))).digest('hex')
-    }
-}
-
-// get defs
-function getDefs(file) {
-    if (file.slice(-4).includes('.js')) {
-        let data = fs.readFileSync(path.join(directory, file), 'utf8')
-        // ignore comments
-        data = data.replace(/\/\/.*\/\*(?!.*\*\/)/g,'') // ignore: // ... /* ...
-        data = data.replace(/\/\*[^]*?\*\//gm,'') // ignore: /* ... */
-        data = data.replace(/\/\/.*/g,'') // ignore: // ...
-        data = data.replace(/[A-Z\.]+\.majorPatchVersion/igm,'majorPatchVersion')
-        let packets = data.match(/['"`][CS]_[A-Z_]+['"`][ \t]*,([ \t\n]*\d+|[ \t\n]*[`'"]raw[`'"`]|[^\n,\]]+)/igm)
-        //console.log(packets)
-        if (packets) {
-            if (!Array.isArray(packets)) packets = [packets]
-            for (let packet of packets) {
-                // make defs object for manifest
-                if (!manifest.defs) manifest.defs = {}
-                // get def versions
-                packet = packet.split(',')
-                let versions = []
-                for (let majorPatchVersion = 60; majorPatchVersion <= 100; majorPatchVersion += 1) {
-                    let v
-                    try {v = eval(packet[1])}
-                    catch (err) {
-                        console.log(`eval(${packet[1]})`)
-                        console.log(err)
-                        majorPatchVersion = 101
-                    }
-                    if (v && !versions.includes(v)) versions.push(v)
-                }
-                for (let packetVer of versions) {
-                    // if NaN
-                    if (isNaN(packetVer)) packetVer = String(packetVer).toLowerCase()
-                    // if in manifest
-                    packet[0] = packet[0].replace(/['"` \t\n]/igm, '')
-                    if (manifest.defs[packet[0]]) {
-                        // add to list
-                        if (Array.isArray(manifest.defs[packet[0]])) {
-                            if (!manifest.defs[packet[0]].includes(packetVer)) {
-                                manifest.defs[packet[0]].push(packetVer)
-                                manifest.defs[packet[0]].sort((a,b)=>{return a-b})
-                            }
-                        }
-                        // change to list
-                        else if (['number', 'string'].includes(typeof manifest.defs[packet[0]]) && manifest.defs[packet[0]] != packetVer) {
-                            manifest.defs[packet[0]] = [manifest.defs[packet[0]], packetVer]
-                            manifest.defs[packet[0]].sort((a,b)=>{return a-b})
-                        }
-                        // delete other versions
-                        if (onlyHighestDefVer && Array.isArray(manifest.defs[packet[0]])) {
-                            let index = manifest.defs[packet[0]].length - 1
-                            if (typeof manifest.defs[packet[0]][index] == "string") index -= 1
-                            manifest.defs[packet[0]] = manifest.defs[packet[0]][index]
-                        }
-                    }
-                    else {
-                        manifest.defs[packet[0]] = packetVer
-                    }
-                }
-            }
-        }
     }
 }
 
